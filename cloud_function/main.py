@@ -7,9 +7,9 @@ from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 import requests
 
-# Variables de entorno
+# Environment variables
 PROJECT_ID = os.environ.get("PROJECT_ID")
-CLOUD_RUN_URL = os.environ.get("CLOUD_RUN_URL")  # URL del servicio Cloud Run
+CLOUD_RUN_URL = os.environ.get("CLOUD_RUN_URL")  # Cloud Run service URL
 
 @functions_framework.cloud_event
 def handle_new_file(event):
@@ -17,37 +17,37 @@ def handle_new_file(event):
     file_name = data["name"]
     bucket_name = data["bucket"]
 
-    # Validar nombre del archivo
-    match = re.match(r"(ventas|clientes)_(\d{8})\.csv", file_name)
+    # Validate file name
+    match = re.match(r"(sales|customers)_(\d{8})\.csv", file_name)
     if not match:
-        print(f"Archivo ignorado: {file_name}")
+        print(f"Ignored file: {file_name}")
         return
 
-    tipo, fecha = match.groups()
-    print(f"📥 Recibido archivo: {file_name} - tipo: {tipo}, fecha: {fecha}")
+    file_type, date = match.groups()
+    print(f"📥 Received file: {file_name} - type: {file_type}, date: {date}")
 
-    # Conexión a Firestore
+    # Connect to Firestore
     db = firestore.Client()
-    doc_ref = db.collection("archivos").document(fecha)
+    doc_ref = db.collection("files").document(date)
     doc = doc_ref.get()
 
-    estado = {"ventas": False, "clientes": False}
+    status = {"sales": False, "customers": False}
     if doc.exists:
-        estado.update(doc.to_dict())
+        status.update(doc.to_dict())
 
-    estado[tipo] = True
-    doc_ref.set(estado)
+    status[file_type] = True
+    doc_ref.set(status)
 
-    # Verificar si ya están ambos archivos
-    if estado["ventas"] and estado["clientes"]:
-        print(f"✅ Ambos archivos disponibles para {fecha}. Lanzando procesamiento...")
+    # Check if both files are already available
+    if status["sales"] and status["customers"]:
+        print(f"✅ Both files available for {date}. Triggering processing...")
 
         try:
             credentials, _ = google.auth.default()
             auth_request = Request()
             target_audience = CLOUD_RUN_URL
 
-            # Obtener el ID token firmado
+            # Get the signed ID token
             token = id_token.fetch_id_token(auth_request, target_audience)
 
             headers = {
@@ -57,15 +57,15 @@ def handle_new_file(event):
 
             response = requests.post(
                 CLOUD_RUN_URL,
-                json={"fecha": fecha},
+                json={"date": date},
                 headers=headers,
                 timeout=30
             )
 
-            print(f"🔁 Cloud Run respondió: {response.status_code}")
+            print(f"🔁 Cloud Run responded with: {response.status_code}")
             print(response.text)
 
         except Exception as e:
-            print("❌ Error al llamar a Cloud Run:", str(e))
+            print("❌ Error while calling Cloud Run:", str(e))
     else:
-        print(f"⏳ Aún falta un archivo para {fecha}. Estado actual: {estado}")
+        print(f"⏳ Still waiting for one file for {date}. Current status: {status}")
